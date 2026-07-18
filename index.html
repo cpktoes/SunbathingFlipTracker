@@ -163,7 +163,8 @@
   }
   .result-card h2{color:#fff; margin-bottom:2px;}
   .result-sub{font-size:12px; color:#FFE3D8; margin-bottom:16px; font-weight:600;}
-  .stat-row{display:flex; gap:10px; margin-bottom:16px;}
+  .stat-row{display:flex; gap:10px; margin-bottom:10px;}
+  .assumption-note{font-size:10.8px; color:#FFE3D8; font-weight:500; line-height:1.4; margin-bottom:16px;}
   .stat{flex:1; background:rgba(255,255,255,0.16); border-radius:14px; padding:11px 12px;}
   .stat .num{font-family:'Baloo 2', sans-serif; font-size:22px; font-weight:700; line-height:1.1;}
   .stat .lbl{font-size:10.5px; font-weight:700; color:#FFE3D8; margin-top:2px; text-transform:uppercase; letter-spacing:0.3px;}
@@ -218,6 +219,7 @@
   .timer-ring-wrap{position:relative; width:250px; height:250px; margin:10px 0 18px;}
   .timer-clock{font-family:'Baloo 2'; font-size:48px; font-weight:700; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;}
   .timer-next{font-size:12.5px; color:#DCEFFA; font-weight:600; margin-bottom:22px; text-align:center;}
+  .keepawake-note{font-size:10.5px; color:#B7DCEE; font-weight:500; text-align:center; max-width:280px; margin-top:20px; line-height:1.5;}
   .timer-controls{display:flex; gap:12px;}
   .tc-btn{
     border:none; border-radius:16px; padding:13px 26px; font-family:'Manrope'; font-weight:700;
@@ -305,6 +307,7 @@
         <div class="lbl">Burn risk at</div>
       </div>
     </div>
+    <div class="assumption-note">Burn risk assumes an even, undisturbed layer of sunscreen. Sweat, swimming, sand and toweling off wear it down faster — reapply on schedule below.</div>
 
     <div class="cycles-row">
       <div class="stepper-row">
@@ -358,6 +361,7 @@
     <button class="tc-btn secondary" id="tcSkip">Skip position</button>
     <button class="tc-btn primary" id="tcPause">Pause</button>
   </div>
+  <div class="keepawake-note" id="keepawakeNote">🔔 Sound + vibration will alert you to flip. Your screen will stay on automatically, so you don't need to touch your phone. Just don't manually lock it or switch apps — that pauses the timer.</div>
 </div>
 
 <script>
@@ -565,13 +569,25 @@ function renderChart(hd){
   chartHolder.innerHTML = `<svg class="chart" viewBox="0 0 ${w} ${h}">${bars}${labels}</svg>`;
 }
 
-/* ---------- CORE CALCULATION ---------- */
+/* ---------- CORE CALCULATION ----------
+   SPF real-world scaling factor (0.4): grounded in King's College London's 2018
+   photobiology study, which found sunscreen applied "in a typical way" delivers,
+   at best, ~40% of its labeled SPF (people apply roughly half the tested 2mg/cm²
+   dose, and protection scales sub-linearly below that dose). That's the most
+   conservative widely-cited figure — Consumer Reports and a JDD durability study
+   both land closer to 45-50% retention, so 40% is a deliberately cautious choice,
+   applied continuously rather than as a step function, so higher SPF still keeps
+   scaling up (SPF 50 always outlasts SPF 30, etc.) instead of collapsing to one
+   flat ceiling. The 2-hour reapplication guidance below is separate and constant
+   regardless of SPF — that's the FDA/AAD standard, driven by physical wear
+   (sweat, water, sand, friction) rather than the dose math itself. */
 function computePlan(){
   const uv = Math.max(state.uv, 0.3);
   const med = MED[state.skinType];
   const irradiance = uv * 0.025;
   const unprotectedBurnMinutes = med / (irradiance * 60);
-  const spfMultiplier = 1 + (state.spf - 1) * 0.5;
+  const REALWORLD_SPF_FACTOR = 0.4;
+  const spfMultiplier = 1 + (state.spf - 1) * REALWORLD_SPF_FACTOR;
   const protectedBurnMinutes = unprotectedBurnMinutes * spfMultiplier;
   const sessionMinutes = protectedBurnMinutes * 0.75;
   const reapplyMinutes = state.spf > 1 ? Math.min(120, protectedBurnMinutes) : null;
@@ -580,9 +596,10 @@ function computePlan(){
   const frontBackTotal = includeSides ? sessionMinutes * (2/3) : sessionMinutes;
   const sidesTotal = includeSides ? sessionMinutes * (1/3) : 0;
 
-  // recommended cycles: aim for ~18 min per front/back turn (within the 15-30 min expert range)
+  // recommended cycles: aim for ~18 min per front/back turn (within the 15-30 min expert range),
+  // capped at 10 cycles so very long sessions still show a sane, glanceable schedule.
   const recommendedCycles = includeSides
-    ? Math.max(1, Math.round(frontBackTotal / (2 * 18)))
+    ? Math.min(10, Math.max(1, Math.round(frontBackTotal / (2 * 18))))
     : 1;
 
   return {unprotectedBurnMinutes, protectedBurnMinutes, sessionMinutes, reapplyMinutes,
@@ -601,11 +618,9 @@ function buildSchedule(plan, cycles){
     return positions;
   }
 
-  // Sides repeat every other front/back cycle (after cycle 2, 4, 6…).
-  // If there's only ever one cycle, sides still get one appearance at the end.
+  // Sides repeat every other front/back cycle, starting after the first (1, 3, 5…).
   const sideCycleIdx = [];
-  for(let i=2; i<=cycles; i+=2) sideCycleIdx.push(i);
-  if(sideCycleIdx.length === 0) sideCycleIdx.push(cycles);
+  for(let i=1; i<=cycles; i+=2) sideCycleIdx.push(i);
   const perInsertion = plan.sidesTotal / sideCycleIdx.length;
 
   for(let i=1; i<=cycles; i++){
@@ -645,7 +660,7 @@ document.getElementById('cycleMinus').addEventListener('click', ()=>{
   saveState(); renderScheduleOnly();
 });
 document.getElementById('cyclePlus').addEventListener('click', ()=>{
-  state.cycles = Math.min(6, state.cycles + 1);
+  state.cycles = Math.min(10, state.cycles + 1);
   state.cyclesManual = true;
   saveState(); renderScheduleOnly();
 });
@@ -682,7 +697,7 @@ function recompute(){
 
   if(currentPlan.reapplyMinutes){
     reapplyNote.style.display = 'block';
-    reapplyNote.textContent = `🧴 Reapply sunscreen after ${fmtMinutes(currentPlan.reapplyMinutes)} if your session runs longer.`;
+    reapplyNote.textContent = `🧴 Reapply sunscreen every 2 hours regardless of the estimate above — that's the standard FDA/AAD guidance, since sweat, water, sand and friction wear a sunscreen film down independently of its SPF number.`;
   } else {
     reapplyNote.style.display = 'none';
   }
@@ -743,12 +758,15 @@ function playDoneChime(){
 
 /* ---------- WAKE LOCK ---------- */
 let wakeLock = null;
+let wakeLockSupported = ('wakeLock' in navigator);
 async function requestWakeLock(){
   try{
     if('wakeLock' in navigator){
       wakeLock = await navigator.wakeLock.request('screen');
+      return true;
     }
-  }catch(e){ /* fails if unsupported or backgrounded — timer still runs, just note the caveat in UI */ }
+  }catch(e){ /* fails if unsupported, low power mode, or backgrounded — timer still runs, just note the caveat in UI */ }
+  return false;
 }
 function releaseWakeLock(){
   if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
@@ -774,9 +792,15 @@ let timerState = {
   positions: [], idx:0, remaining:0, total:0, running:false, interval:null
 };
 
-document.getElementById('startTimerBtn').addEventListener('click', ()=>{
+document.getElementById('startTimerBtn').addEventListener('click', async ()=>{
   ensureAudio(); // must happen inside this tap, or iOS Safari will block sound later
-  requestWakeLock();
+  const gotWakeLock = await requestWakeLock();
+  const note = document.getElementById('keepawakeNote');
+  if(gotWakeLock){
+    note.textContent = "🔔 Sound + vibration will alert you to flip. Your screen will stay on automatically, so you don't need to touch your phone. Just don't manually lock it or switch apps — that pauses the timer.";
+  } else {
+    note.textContent = "🔔 Sound + vibration will alert you to flip. This phone/browser can't keep the screen awake automatically, so it will auto-lock and pause the timer unless you tap the screen occasionally, or turn off Auto-Lock in Settings for this session.";
+  }
   if(!currentPlan) recompute();
   const positions = buildSchedule(currentPlan, state.cycles);
   timerState.positions = positions.map(p=>({name:p.name, seconds: Math.max(Math.round(p.minutes*60), 10)}));
@@ -834,6 +858,7 @@ function tick_start(){
     if(timerState.remaining <= 0){
       stopTicking();
       showFlipAlert();
+      playFlipChime();
       if(navigator.vibrate) navigator.vibrate([200,100,200]);
       setTimeout(()=>{ advancePosition(); }, 1800);
     } else {
@@ -853,6 +878,9 @@ function advancePosition(){
     timerClock.textContent = '🎉';
     timerNext.textContent = 'Session complete. Nice glow.';
     stopTicking();
+    playDoneChime();
+    if(navigator.vibrate) navigator.vibrate([150,80,150,80,300]);
+    releaseWakeLock();
     return;
   }
   startPosition();
