@@ -219,17 +219,7 @@
   .timer-ring-wrap{position:relative; width:250px; height:250px; margin:10px 0 18px;}
   .timer-clock{font-family:'Baloo 2'; font-size:48px; font-weight:700; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;}
   .timer-next{font-size:12.5px; color:#DCEFFA; font-weight:600; margin-bottom:22px; text-align:center;}
-  .keepawake-note{font-size:10.5px; color:#B7DCEE; font-weight:500; text-align:center; max-width:280px; margin-top:14px; line-height:1.5;}
-  .alarm-slider-row{width:220px; margin-top:22px;}
-  .alarm-slider-label{font-size:12px; font-weight:700; color:#fff; text-align:center; margin-bottom:6px;}
-  .alarm-slider-row input[type=range]{
-    -webkit-appearance:none; width:100%; height:8px; border-radius:6px;
-    background:rgba(255,255,255,0.25); outline:none; margin:0;
-  }
-  .alarm-slider-row input[type=range]::-webkit-slider-thumb{
-    -webkit-appearance:none; width:24px; height:24px; border-radius:50%;
-    background:#fff; border:3px solid var(--gold); box-shadow:0 2px 6px rgba(0,0,0,0.3);
-  }
+  .keepawake-note{font-size:10.5px; color:#B7DCEE; font-weight:500; text-align:center; max-width:280px; margin-top:20px; line-height:1.5;}
   .timer-controls{display:flex; gap:12px;}
   .tc-btn{
     border:none; border-radius:16px; padding:13px 26px; font-family:'Manrope'; font-weight:700;
@@ -371,11 +361,7 @@
     <button class="tc-btn secondary" id="tcSkip">Skip position</button>
     <button class="tc-btn primary" id="tcPause">Pause</button>
   </div>
-  <div class="alarm-slider-row">
-    <div class="alarm-slider-label">Alarm length: <span id="alarmSecVal">6</span>s</div>
-    <input type="range" id="alarmSlider" min="1" max="30" step="1" value="6">
-  </div>
-  <div class="keepawake-note" id="keepawakeNote">🔔 Sound + vibration will alert you to flip. Your screen will stay on automatically, so you don't need to touch your phone. Just don't manually lock it or switch apps — that pauses the timer.</div>
+  <div class="keepawake-note">🔔 Sound + vibration will alert you to flip. Keep this tab open and your phone unlocked — closing Safari or locking the screen pauses the timer.</div>
 </div>
 
 <script>
@@ -418,7 +404,6 @@ let state = {
   uvSource: 'manual',
   cycles: 1,
   cyclesManual: false,
-  alarmSeconds: 6,
 };
 function loadState(){
   try{
@@ -757,32 +742,28 @@ function beep(freq, startTime, duration, gainPeak){
   osc.start(startTime);
   osc.stop(startTime + duration + 0.05);
 }
-// Repeats an alternating tone pattern for the user's chosen alarm length (1-30s),
-// scheduled all at once via Web Audio's own clock so it doesn't drift or depend on setInterval.
-function playAlarm(durationSec, freqs){
+function playFlipChime(){
   if(!ensureAudio()) return;
-  const t0 = audioCtx.currentTime;
-  const step = 0.42;
-  let i = 0;
-  for(let elapsed = 0; elapsed < durationSec; elapsed += step){
-    beep(freqs[i % freqs.length], t0 + elapsed, 0.34, 0.22);
-    i++;
-  }
+  const t = audioCtx.currentTime;
+  beep(880, t, 0.28, 0.22);
+  beep(1175, t + 0.16, 0.32, 0.22);
 }
-function playFlipChime(){ playAlarm(state.alarmSeconds, [880, 1175]); }
-function playDoneChime(){ playAlarm(state.alarmSeconds, [660, 880, 1320]); }
+function playDoneChime(){
+  if(!ensureAudio()) return;
+  const t = audioCtx.currentTime;
+  beep(660, t, 0.2, 0.2);
+  beep(880, t + 0.15, 0.2, 0.2);
+  beep(1320, t + 0.3, 0.5, 0.22);
+}
 
 /* ---------- WAKE LOCK ---------- */
 let wakeLock = null;
-let wakeLockSupported = ('wakeLock' in navigator);
 async function requestWakeLock(){
   try{
     if('wakeLock' in navigator){
       wakeLock = await navigator.wakeLock.request('screen');
-      return true;
     }
-  }catch(e){ /* fails if unsupported, low power mode, or backgrounded — timer still runs, just note the caveat in UI */ }
-  return false;
+  }catch(e){ /* fails if unsupported or backgrounded — timer still runs, just note the caveat in UI */ }
 }
 function releaseWakeLock(){
   if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
@@ -808,15 +789,9 @@ let timerState = {
   positions: [], idx:0, remaining:0, total:0, running:false, interval:null
 };
 
-document.getElementById('startTimerBtn').addEventListener('click', async ()=>{
+document.getElementById('startTimerBtn').addEventListener('click', ()=>{
   ensureAudio(); // must happen inside this tap, or iOS Safari will block sound later
-  const gotWakeLock = await requestWakeLock();
-  const note = document.getElementById('keepawakeNote');
-  if(gotWakeLock){
-    note.textContent = "🔔 Sound + vibration will alert you to flip. Your screen will stay on automatically, so you don't need to touch your phone. Just don't manually lock it or switch apps — that pauses the timer.";
-  } else {
-    note.textContent = "🔔 Sound + vibration will alert you to flip. This phone/browser can't keep the screen awake automatically, so it will auto-lock and pause the timer unless you tap the screen occasionally, or turn off Auto-Lock in Settings for this session.";
-  }
+  requestWakeLock();
   if(!currentPlan) recompute();
   const positions = buildSchedule(currentPlan, state.cycles);
   timerState.positions = positions.map(p=>({name:p.name, seconds: Math.max(Math.round(p.minutes*60), 10)}));
@@ -876,8 +851,7 @@ function tick_start(){
       showFlipAlert();
       playFlipChime();
       if(navigator.vibrate) navigator.vibrate([200,100,200]);
-      const holdMs = Math.max(1200, state.alarmSeconds * 1000);
-      setTimeout(()=>{ advancePosition(); }, holdMs);
+      setTimeout(()=>{ advancePosition(); }, 1800);
     } else {
       updateClock();
     }
@@ -908,26 +882,12 @@ function showFlipAlert(){
 }
 function hideFlipAlert(){ flipAlert.classList.remove('show'); }
 
-/* ---------- ALARM LENGTH SLIDER ---------- */
-const alarmSlider = document.getElementById('alarmSlider');
-const alarmSecVal = document.getElementById('alarmSecVal');
-function renderAlarmSlider(){
-  alarmSlider.value = state.alarmSeconds;
-  alarmSecVal.textContent = state.alarmSeconds;
-}
-alarmSlider.addEventListener('input', ()=>{
-  state.alarmSeconds = parseInt(alarmSlider.value, 10);
-  alarmSecVal.textContent = state.alarmSeconds;
-  saveState();
-});
-
 /* ---------- INIT ---------- */
 loadState();
 renderSkinGrid();
 renderSkinSummary();
 renderSpf();
 renderUvBadge();
-renderAlarmSlider();
 recompute();
 </script>
 </body>

@@ -163,8 +163,7 @@
   }
   .result-card h2{color:#fff; margin-bottom:2px;}
   .result-sub{font-size:12px; color:#FFE3D8; margin-bottom:16px; font-weight:600;}
-  .stat-row{display:flex; gap:10px; margin-bottom:10px;}
-  .assumption-note{font-size:10.8px; color:#FFE3D8; font-weight:500; line-height:1.4; margin-bottom:16px;}
+  .stat-row{display:flex; gap:10px; margin-bottom:16px;}
   .stat{flex:1; background:rgba(255,255,255,0.16); border-radius:14px; padding:11px 12px;}
   .stat .num{font-family:'Baloo 2', sans-serif; font-size:22px; font-weight:700; line-height:1.1;}
   .stat .lbl{font-size:10.5px; font-weight:700; color:#FFE3D8; margin-top:2px; text-transform:uppercase; letter-spacing:0.3px;}
@@ -219,17 +218,7 @@
   .timer-ring-wrap{position:relative; width:250px; height:250px; margin:10px 0 18px;}
   .timer-clock{font-family:'Baloo 2'; font-size:48px; font-weight:700; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;}
   .timer-next{font-size:12.5px; color:#DCEFFA; font-weight:600; margin-bottom:22px; text-align:center;}
-  .keepawake-note{font-size:10.5px; color:#B7DCEE; font-weight:500; text-align:center; max-width:280px; margin-top:14px; line-height:1.5;}
-  .alarm-slider-row{width:220px; margin-top:22px;}
-  .alarm-slider-label{font-size:12px; font-weight:700; color:#fff; text-align:center; margin-bottom:6px;}
-  .alarm-slider-row input[type=range]{
-    -webkit-appearance:none; width:100%; height:8px; border-radius:6px;
-    background:rgba(255,255,255,0.25); outline:none; margin:0;
-  }
-  .alarm-slider-row input[type=range]::-webkit-slider-thumb{
-    -webkit-appearance:none; width:24px; height:24px; border-radius:50%;
-    background:#fff; border:3px solid var(--gold); box-shadow:0 2px 6px rgba(0,0,0,0.3);
-  }
+  .keepawake-note{font-size:10.5px; color:#B7DCEE; font-weight:500; text-align:center; max-width:280px; margin-top:20px; line-height:1.5;}
   .timer-controls{display:flex; gap:12px;}
   .tc-btn{
     border:none; border-radius:16px; padding:13px 26px; font-family:'Manrope'; font-weight:700;
@@ -317,7 +306,6 @@
         <div class="lbl">Burn risk at</div>
       </div>
     </div>
-    <div class="assumption-note">Burn risk assumes an even, undisturbed layer of sunscreen. Sweat, swimming, sand and toweling off wear it down faster — reapply on schedule below.</div>
 
     <div class="cycles-row">
       <div class="stepper-row">
@@ -371,11 +359,7 @@
     <button class="tc-btn secondary" id="tcSkip">Skip position</button>
     <button class="tc-btn primary" id="tcPause">Pause</button>
   </div>
-  <div class="alarm-slider-row">
-    <div class="alarm-slider-label">Alarm length: <span id="alarmSecVal">6</span>s</div>
-    <input type="range" id="alarmSlider" min="1" max="30" step="1" value="6">
-  </div>
-  <div class="keepawake-note" id="keepawakeNote">🔔 Sound + vibration will alert you to flip. Your screen will stay on automatically, so you don't need to touch your phone. Just don't manually lock it or switch apps — that pauses the timer.</div>
+  <div class="keepawake-note">🔔 Sound + vibration will alert you to flip. Keep this tab open and your phone unlocked — closing Safari or locking the screen pauses the timer.</div>
 </div>
 
 <script>
@@ -418,7 +402,6 @@ let state = {
   uvSource: 'manual',
   cycles: 1,
   cyclesManual: false,
-  alarmSeconds: 6,
 };
 function loadState(){
   try{
@@ -584,26 +567,24 @@ function renderChart(hd){
   chartHolder.innerHTML = `<svg class="chart" viewBox="0 0 ${w} ${h}">${bars}${labels}</svg>`;
 }
 
-/* ---------- CORE CALCULATION ----------
-   SPF real-world scaling factor (0.4): grounded in King's College London's 2018
-   photobiology study, which found sunscreen applied "in a typical way" delivers,
-   at best, ~40% of its labeled SPF (people apply roughly half the tested 2mg/cm²
-   dose, and protection scales sub-linearly below that dose). That's the most
-   conservative widely-cited figure — Consumer Reports and a JDD durability study
-   both land closer to 45-50% retention, so 40% is a deliberately cautious choice,
-   applied continuously rather than as a step function, so higher SPF still keeps
-   scaling up (SPF 50 always outlasts SPF 30, etc.) instead of collapsing to one
-   flat ceiling. The 2-hour reapplication guidance below is separate and constant
-   regardless of SPF — that's the FDA/AAD standard, driven by physical wear
-   (sweat, water, sand, friction) rather than the dose math itself. */
+/* ---------- CORE CALCULATION ---------- */
 function computePlan(){
   const uv = Math.max(state.uv, 0.3);
   const med = MED[state.skinType];
   const irradiance = uv * 0.025;
   const unprotectedBurnMinutes = med / (irradiance * 60);
-  const REALWORLD_SPF_FACTOR = 0.4;
-  const spfMultiplier = 1 + (state.spf - 1) * REALWORLD_SPF_FACTOR;
-  const protectedBurnMinutes = unprotectedBurnMinutes * spfMultiplier;
+  const spfMultiplier = 1 + (state.spf - 1) * 0.5;
+  const protectedBurnMinutesRaw = unprotectedBurnMinutes * spfMultiplier;
+  // Sunscreen film degrades with sweat, water, sand and friction well before the
+  // labeled SPF's theoretical dose multiplier would suggest — this is exactly why
+  // dermatologists recommend reapplying every ~2 hours regardless of SPF number.
+  // We cap the *practical* protected window so the plan doesn't imply hours of
+  // unbroken protection no sunscreen actually delivers in real conditions.
+  const PRACTICAL_PROTECTION_CAP = 150; // minutes (2.5h)
+  const protectedBurnMinutes = state.spf > 1
+    ? Math.min(protectedBurnMinutesRaw, PRACTICAL_PROTECTION_CAP)
+    : protectedBurnMinutesRaw;
+  const cappedBySunscreenWear = state.spf > 1 && protectedBurnMinutesRaw > PRACTICAL_PROTECTION_CAP;
   const sessionMinutes = protectedBurnMinutes * 0.75;
   const reapplyMinutes = state.spf > 1 ? Math.min(120, protectedBurnMinutes) : null;
   const includeSides = sessionMinutes >= 20;
@@ -611,13 +592,12 @@ function computePlan(){
   const frontBackTotal = includeSides ? sessionMinutes * (2/3) : sessionMinutes;
   const sidesTotal = includeSides ? sessionMinutes * (1/3) : 0;
 
-  // recommended cycles: aim for ~18 min per front/back turn (within the 15-30 min expert range),
-  // capped at 10 cycles so very long sessions still show a sane, glanceable schedule.
+  // recommended cycles: aim for ~18 min per front/back turn (within the 15-30 min expert range)
   const recommendedCycles = includeSides
-    ? Math.min(10, Math.max(1, Math.round(frontBackTotal / (2 * 18))))
+    ? Math.max(1, Math.round(frontBackTotal / (2 * 18)))
     : 1;
 
-  return {unprotectedBurnMinutes, protectedBurnMinutes, sessionMinutes, reapplyMinutes,
+  return {unprotectedBurnMinutes, protectedBurnMinutes, cappedBySunscreenWear, sessionMinutes, reapplyMinutes,
     includeSides, frontBackTotal, sidesTotal, recommendedCycles};
 }
 
@@ -675,7 +655,7 @@ document.getElementById('cycleMinus').addEventListener('click', ()=>{
   saveState(); renderScheduleOnly();
 });
 document.getElementById('cyclePlus').addEventListener('click', ()=>{
-  state.cycles = Math.min(10, state.cycles + 1);
+  state.cycles = Math.min(6, state.cycles + 1);
   state.cyclesManual = true;
   saveState(); renderScheduleOnly();
 });
@@ -712,7 +692,11 @@ function recompute(){
 
   if(currentPlan.reapplyMinutes){
     reapplyNote.style.display = 'block';
-    reapplyNote.textContent = `🧴 Reapply sunscreen every 2 hours regardless of the estimate above — that's the standard FDA/AAD guidance, since sweat, water, sand and friction wear a sunscreen film down independently of its SPF number.`;
+    let txt = `🧴 Reapply sunscreen after ${fmtMinutes(currentPlan.reapplyMinutes)} if your session runs longer.`;
+    if(currentPlan.cappedBySunscreenWear){
+      txt += ` Note: the math behind your SPF would suggest a much longer burn window, but we cap it at 2.5h — sweat, water and friction wear sunscreen down well before the label's number holds true.`;
+    }
+    reapplyNote.textContent = txt;
   } else {
     reapplyNote.style.display = 'none';
   }
@@ -757,32 +741,28 @@ function beep(freq, startTime, duration, gainPeak){
   osc.start(startTime);
   osc.stop(startTime + duration + 0.05);
 }
-// Repeats an alternating tone pattern for the user's chosen alarm length (1-30s),
-// scheduled all at once via Web Audio's own clock so it doesn't drift or depend on setInterval.
-function playAlarm(durationSec, freqs){
+function playFlipChime(){
   if(!ensureAudio()) return;
-  const t0 = audioCtx.currentTime;
-  const step = 0.42;
-  let i = 0;
-  for(let elapsed = 0; elapsed < durationSec; elapsed += step){
-    beep(freqs[i % freqs.length], t0 + elapsed, 0.34, 0.22);
-    i++;
-  }
+  const t = audioCtx.currentTime;
+  beep(880, t, 0.28, 0.22);
+  beep(1175, t + 0.16, 0.32, 0.22);
 }
-function playFlipChime(){ playAlarm(state.alarmSeconds, [880, 1175]); }
-function playDoneChime(){ playAlarm(state.alarmSeconds, [660, 880, 1320]); }
+function playDoneChime(){
+  if(!ensureAudio()) return;
+  const t = audioCtx.currentTime;
+  beep(660, t, 0.2, 0.2);
+  beep(880, t + 0.15, 0.2, 0.2);
+  beep(1320, t + 0.3, 0.5, 0.22);
+}
 
 /* ---------- WAKE LOCK ---------- */
 let wakeLock = null;
-let wakeLockSupported = ('wakeLock' in navigator);
 async function requestWakeLock(){
   try{
     if('wakeLock' in navigator){
       wakeLock = await navigator.wakeLock.request('screen');
-      return true;
     }
-  }catch(e){ /* fails if unsupported, low power mode, or backgrounded — timer still runs, just note the caveat in UI */ }
-  return false;
+  }catch(e){ /* fails if unsupported or backgrounded — timer still runs, just note the caveat in UI */ }
 }
 function releaseWakeLock(){
   if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
@@ -808,15 +788,9 @@ let timerState = {
   positions: [], idx:0, remaining:0, total:0, running:false, interval:null
 };
 
-document.getElementById('startTimerBtn').addEventListener('click', async ()=>{
+document.getElementById('startTimerBtn').addEventListener('click', ()=>{
   ensureAudio(); // must happen inside this tap, or iOS Safari will block sound later
-  const gotWakeLock = await requestWakeLock();
-  const note = document.getElementById('keepawakeNote');
-  if(gotWakeLock){
-    note.textContent = "🔔 Sound + vibration will alert you to flip. Your screen will stay on automatically, so you don't need to touch your phone. Just don't manually lock it or switch apps — that pauses the timer.";
-  } else {
-    note.textContent = "🔔 Sound + vibration will alert you to flip. This phone/browser can't keep the screen awake automatically, so it will auto-lock and pause the timer unless you tap the screen occasionally, or turn off Auto-Lock in Settings for this session.";
-  }
+  requestWakeLock();
   if(!currentPlan) recompute();
   const positions = buildSchedule(currentPlan, state.cycles);
   timerState.positions = positions.map(p=>({name:p.name, seconds: Math.max(Math.round(p.minutes*60), 10)}));
@@ -876,8 +850,7 @@ function tick_start(){
       showFlipAlert();
       playFlipChime();
       if(navigator.vibrate) navigator.vibrate([200,100,200]);
-      const holdMs = Math.max(1200, state.alarmSeconds * 1000);
-      setTimeout(()=>{ advancePosition(); }, holdMs);
+      setTimeout(()=>{ advancePosition(); }, 1800);
     } else {
       updateClock();
     }
@@ -908,26 +881,12 @@ function showFlipAlert(){
 }
 function hideFlipAlert(){ flipAlert.classList.remove('show'); }
 
-/* ---------- ALARM LENGTH SLIDER ---------- */
-const alarmSlider = document.getElementById('alarmSlider');
-const alarmSecVal = document.getElementById('alarmSecVal');
-function renderAlarmSlider(){
-  alarmSlider.value = state.alarmSeconds;
-  alarmSecVal.textContent = state.alarmSeconds;
-}
-alarmSlider.addEventListener('input', ()=>{
-  state.alarmSeconds = parseInt(alarmSlider.value, 10);
-  alarmSecVal.textContent = state.alarmSeconds;
-  saveState();
-});
-
 /* ---------- INIT ---------- */
 loadState();
 renderSkinGrid();
 renderSkinSummary();
 renderSpf();
 renderUvBadge();
-renderAlarmSlider();
 recompute();
 </script>
 </body>
