@@ -189,6 +189,34 @@
     margin-top:10px; background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.3);
     border-radius:12px; padding:10px 12px; font-size:12px; font-weight:600; line-height:1.4; color:#fff;
   }
+  .caution-note{
+    margin-top:10px; background:rgba(58,42,0,0.22); border:1px solid rgba(255,182,72,0.55);
+    border-radius:12px; padding:10px 12px; font-size:12px; font-weight:700; line-height:1.4; color:#FFEBC7;
+  }
+
+  .warning-overlay{
+    position:fixed; inset:0; background:rgba(32,50,58,0.55); backdrop-filter:blur(2px);
+    display:none; align-items:center; justify-content:center; z-index:60; padding:20px;
+  }
+  .warning-overlay.active{display:flex;}
+  .warning-card{
+    background:#fff; border-radius:var(--radius); padding:24px 22px 22px; max-width:400px;
+    width:100%; max-height:86vh; overflow-y:auto; box-shadow:0 20px 50px rgba(0,0,0,0.3);
+  }
+  .warning-icon{font-size:34px; text-align:center; margin-bottom:6px;}
+  .warning-title{font-family:'Baloo 2'; font-size:19px; font-weight:700; text-align:center; margin:0 0 12px; color:var(--ink);}
+  .warning-body{font-size:13px; line-height:1.5; color:var(--muted); font-weight:500; margin:0 0 12px;}
+  .warning-schedule{list-style:none; margin:0 0 18px; padding:0; background:var(--bg-tint); border-radius:14px; padding:12px 14px;}
+  .warning-schedule li{
+    display:flex; align-items:center; gap:8px; padding:7px 0; font-size:13.5px; font-weight:700; color:var(--ink);
+    border-bottom:1px solid var(--line);
+  }
+  .warning-schedule li:last-child{border-bottom:none;}
+  .warning-schedule .time{margin-left:auto; color:var(--sky-deep); font-family:'Baloo 2'; font-size:14.5px;}
+  .warning-actions{display:flex; gap:10px;}
+  .warning-actions .tc-btn{flex:1; padding:12px; font-size:13.5px;}
+  .warning-actions .tc-btn.secondary{background:var(--bg-tint); color:var(--ink);}
+  .warning-actions .tc-btn.primary{background:var(--sunset2); color:#fff;}
 
   .timer-toggle{
     width:100%; background:#fff; color:var(--sunset2); border:none; border-radius:16px;
@@ -334,6 +362,7 @@
 
     <ul class="schedule" id="scheduleList"></ul>
     <div class="reapply-note" id="reapplyNote" style="display:none;"></div>
+    <div class="caution-note">⚠️ This timer goes silent if you switch apps or lock your phone — that's a general iPhone and mobile browser limitation on background web pages, not a bug in this app. For a session you don't want to risk, consider also setting a backup timer in your phone's Clock app.</div>
     <button class="timer-toggle" id="startTimerBtn">Start flip timer</button>
   </div>
 
@@ -350,6 +379,21 @@
 
   <div class="footer-note">
     <b>Not medical advice.</b> Estimates use published Fitzpatrick / minimal-erythema-dose research and assume flat, direct exposure. Real burn time varies with cloud cover, altitude, water/sand reflection, medications, and individual sensitivity. If you have a history of skin cancer, sunburn, or take photosensitizing medication, check with a dermatologist first. Stay hydrated, protect your eyes, and never fall asleep in the sun.
+  </div>
+</div>
+
+<!-- WARNING / ACKNOWLEDGE OVERLAY -->
+<div class="warning-overlay" id="warningOverlay">
+  <div class="warning-card">
+    <div class="warning-icon">⚠️</div>
+    <h2 class="warning-title">Before you start</h2>
+    <p class="warning-body">This timer goes silent if you switch apps or lock your phone. That's a general iPhone and mobile browser limitation on background web pages — every browser on iPhone is affected, not just this app.</p>
+    <p class="warning-body">If you don't plan to keep this tab open and your phone unlocked the whole time, set these as backup timers in your phone's Clock app:</p>
+    <ul class="warning-schedule" id="warningScheduleList"></ul>
+    <div class="warning-actions">
+      <button class="tc-btn secondary" id="cancelWarningBtn">Cancel</button>
+      <button class="tc-btn primary" id="beginTimerBtn">Got it, start timer</button>
+    </div>
   </div>
 </div>
 
@@ -680,6 +724,8 @@ document.getElementById('cyclePlus').addEventListener('click', ()=>{
   saveState(); renderScheduleOnly();
 });
 
+const POS_ICONS = {'Back':'🧍','Front':'🙂','Left side':'👈','Right side':'👉'};
+
 function renderScheduleOnly(){
   if(!currentPlan) return;
   cycleVal.textContent = state.cycles;
@@ -688,12 +734,23 @@ function renderScheduleOnly(){
     : "Session is short — sides aren't included";
 
   const positions = buildSchedule(currentPlan, state.cycles);
-  const posIcons = {'Back':'🧍','Front':'🙂','Left side':'👈','Right side':'👉'};
   scheduleList.innerHTML = '';
   positions.forEach(p=>{
     const li = document.createElement('li');
-    li.innerHTML = `<span class="pos-icon">${posIcons[p.name]||'☀️'}</span> ${p.name} <span class="time">${fmtMinutes(p.minutes)}</span>`;
+    li.innerHTML = `<span class="pos-icon">${POS_ICONS[p.name]||'☀️'}</span> ${p.name} <span class="time">${fmtMinutes(p.minutes)}</span>`;
     scheduleList.appendChild(li);
+  });
+}
+
+function renderWarningSchedule(){
+  if(!currentPlan) return;
+  const positions = buildSchedule(currentPlan, state.cycles);
+  const list = document.getElementById('warningScheduleList');
+  list.innerHTML = '';
+  positions.forEach(p=>{
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${POS_ICONS[p.name]||'☀️'}</span> ${p.name} <span class="time">${fmtMinutes(p.minutes)}</span>`;
+    list.appendChild(li);
   });
 }
 
@@ -790,6 +847,7 @@ function releaseWakeLock(){
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState === 'visible' && timerOverlay.classList.contains('active') && timerState.running){
     requestWakeLock();
+    checkTimer(); // recompute instantly from the real clock — don't wait for the next interval tick
   }
 });
 
@@ -804,11 +862,26 @@ const tcPause = document.getElementById('tcPause');
 const RING_CIRC = 2 * Math.PI * 108;
 timerRing.setAttribute('stroke-dasharray', RING_CIRC);
 
+// Timer runs on wall-clock timestamps (endAt), not a decremented counter. That way, even if
+// iOS suspends this tab's JS entirely while you're in another app, the moment execution
+// resumes (tab foregrounded, or the next interval tick fires) we recompute against the real
+// clock and land on the correct time — instead of quietly pausing and drifting.
 let timerState = {
-  positions: [], idx:0, remaining:0, total:0, running:false, interval:null
+  positions: [], idx:0, remaining:0, total:0, running:false, interval:null,
+  mode:'counting', endAt:0, pausedRemainingMs:0
 };
 
-document.getElementById('startTimerBtn').addEventListener('click', async ()=>{
+document.getElementById('startTimerBtn').addEventListener('click', ()=>{
+  if(!currentPlan) recompute();
+  renderWarningSchedule();
+  document.getElementById('warningOverlay').classList.add('active');
+});
+
+document.getElementById('cancelWarningBtn').addEventListener('click', ()=>{
+  document.getElementById('warningOverlay').classList.remove('active');
+});
+
+document.getElementById('beginTimerBtn').addEventListener('click', async ()=>{
   ensureAudio(); // must happen inside this tap, or iOS Safari will block sound later
   const gotWakeLock = await requestWakeLock();
   const note = document.getElementById('keepawakeNote');
@@ -822,6 +895,7 @@ document.getElementById('startTimerBtn').addEventListener('click', async ()=>{
   timerState.positions = positions.map(p=>({name:p.name, seconds: Math.max(Math.round(p.minutes*60), 10)}));
   timerState.idx = 0;
   startPosition();
+  document.getElementById('warningOverlay').classList.remove('active');
   timerOverlay.classList.add('active');
 });
 
@@ -832,18 +906,30 @@ document.getElementById('timerCloseBtn').addEventListener('click', ()=>{
 });
 
 document.getElementById('tcSkip').addEventListener('click', ()=>{
-  advancePosition();
+  goToNextPosition();
 });
 
 tcPause.addEventListener('click', ()=>{
-  if(timerState.running){ stopTicking(); tcPause.textContent = 'Resume'; }
-  else { tick_start(); tcPause.textContent = 'Pause'; }
+  if(timerState.running){
+    // Freeze whatever time is actually left (in whichever mode we're in) rather than
+    // letting a stale endAt keep counting once we resume.
+    const now = Date.now();
+    timerState.pausedRemainingMs = Math.max(0, timerState.endAt - now);
+    stopTicking();
+    tcPause.textContent = 'Resume';
+  } else {
+    timerState.endAt = Date.now() + timerState.pausedRemainingMs;
+    tick_start();
+    tcPause.textContent = 'Pause';
+  }
 });
 
 function startPosition(){
   const pos = timerState.positions[timerState.idx];
-  timerState.remaining = pos.seconds;
+  timerState.mode = 'counting';
   timerState.total = pos.seconds;
+  timerState.remaining = pos.seconds;
+  timerState.endAt = Date.now() + pos.seconds * 1000;
   timerPosition.textContent = pos.name;
   updateNextLabel();
   updateClock();
@@ -863,31 +949,46 @@ function updateClock(){
   const mm = Math.floor(timerState.remaining/60);
   const ss = timerState.remaining%60;
   timerClock.textContent = `${mm}:${ss.toString().padStart(2,'0')}`;
-  const frac = timerState.remaining / timerState.total;
+  const frac = timerState.total > 0 ? timerState.remaining / timerState.total : 0;
   const offset = RING_CIRC * frac;
   timerRing.setAttribute('stroke-dashoffset', RING_CIRC - offset);
 }
 function tick_start(){
   timerState.running = true;
-  timerState.interval = setInterval(()=>{
-    timerState.remaining--;
-    if(timerState.remaining <= 0){
-      stopTicking();
-      showFlipAlert();
-      playFlipChime();
-      if(navigator.vibrate) navigator.vibrate([200,100,200]);
-      const holdMs = Math.max(1200, state.alarmSeconds * 1000);
-      setTimeout(()=>{ advancePosition(); }, holdMs);
-    } else {
-      updateClock();
-    }
-  }, 1000);
+  timerState.interval = setInterval(checkTimer, 500);
 }
 function stopTicking(){
   timerState.running = false;
   clearInterval(timerState.interval);
 }
-function advancePosition(){
+// The single source of truth: compares the real clock to timerState.endAt. Called on a
+// 2x/sec interval AND immediately on visibilitychange, so returning to the tab after any
+// length of time away snaps straight to the correct state.
+function checkTimer(){
+  if(!timerState.running) return;
+  const now = Date.now();
+  if(timerState.mode === 'counting'){
+    if(now >= timerState.endAt){
+      timerState.remaining = 0;
+      updateClock();
+      showFlipAlert();
+      playFlipChime();
+      if(navigator.vibrate) navigator.vibrate([200,100,200]);
+      timerState.mode = 'holding';
+      const holdMs = Math.max(1200, state.alarmSeconds * 1000);
+      timerState.endAt = now + holdMs;
+    } else {
+      timerState.remaining = Math.round((timerState.endAt - now) / 1000);
+      updateClock();
+    }
+  } else if(timerState.mode === 'holding'){
+    if(now >= timerState.endAt){
+      goToNextPosition();
+    }
+  }
+}
+function goToNextPosition(){
+  stopTicking(); // guard: never let a stray interval keep running into the next position
   hideFlipAlert();
   timerState.idx++;
   if(timerState.idx >= timerState.positions.length){
